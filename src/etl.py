@@ -1,15 +1,17 @@
 import pandas as pd
 import sqlite3
 from pathlib import Path
+import sys
+from transform import transform_data
 
 SCRIPT_DIR = Path(__file__).parent
-CSV_PATH = SCRIPT_DIR.parent / "data" / "processed" / "bank_cleaned.csv"
 DB_PATH = SCRIPT_DIR.parent / "data" / "bankview.db"
 
-def run_etl():
-    df = pd.read_csv(CSV_PATH)
-
-    df.rename(columns={"default": "default_flag"}, inplace=True)
+def run_etl(input_csv=None):
+    """Extract → Transform → Load pipeline"""
+    
+    processed_csv = SCRIPT_DIR.parent / "data" / "processed" / "bank_cleaned.csv"
+    df = transform_data(input_csv, processed_csv)
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -56,27 +58,34 @@ def run_etl():
         cursor.execute("""
             INSERT INTO customers (age, job, marital, education, default_flag, balance, housing, loan)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (row.age, row.job, row.marital, row.education, row.default_flag,
-              row.balance, row.housing, row.loan))
-        
+        """, (row['age'], row['job'], row['marital'], row['education'], row['default_flag'],
+              row['balance'], row['housing'], row['loan']))
         customer_id = cursor.lastrowid
+
+        contact_date = row['contact_date']
+        if pd.isna(contact_date):
+            contact_date = None
+        else:
+            contact_date = contact_date.strftime("%Y-%m-%d")  
 
         cursor.execute("""
             INSERT INTO campaigns (customer_id, contact_date, contact, duration,
                                    campaign_number, pdays, previous, poutcome)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (customer_id, row.contact_date, row.contact, row.duration,
-              row.campaign, row.pdays, row.previous, row.poutcome))
+        """, (customer_id, contact_date, row['contact'], row['duration'],
+              row['campaign'], row['pdays'], row['previous'], row['poutcome']))
 
         cursor.execute("""
             INSERT INTO products (customer_id, deposit)
             VALUES (?, ?)
-        """, (customer_id, row.deposit))
+        """, (customer_id, row['deposit']))
 
     conn.commit()
     conn.close()
 
     print(f"ETL completed! Database saved at {DB_PATH}")
+    print(f"Loaded {len(df)} rows from {processed_csv}")
 
 if __name__ == "__main__":
-    run_etl()
+    csv_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    run_etl(csv_arg)

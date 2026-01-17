@@ -1,35 +1,39 @@
-from pathlib import Path
 import pandas as pd
+from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
-
 RAW_DATA_PATH = SCRIPT_DIR.parent / "data" / "raw" / "bank.csv"
 PROCESSED_DATA_PATH = SCRIPT_DIR.parent / "data" / "processed" / "bank_cleaned.csv"
 
+def transform_data(input_path=None, output_path=None):
+    """Load raw CSV, clean/transform it, save processed CSV."""
+    
+    input_path = Path(input_path) if input_path else RAW_DATA_PATH
+    output_path = Path(output_path) if output_path else PROCESSED_DATA_PATH
 
-def transform_data():
-    df = pd.read_csv(RAW_DATA_PATH)
+    df = pd.read_csv(input_path)
 
-    df.columns = df.columns.str.lower().str.strip()
+    df.columns = df.columns.str.strip().str.lower()
 
-    yes_no_cols = ["default", "housing", "loan", "deposit"]
-    for col in yes_no_cols:
-        df[col] = df[col].map({"yes": 1, "no": 0})
+    if "default" in df.columns:
+        df.rename(columns={"default": "default_flag"}, inplace=True)
 
-    df["contact_date"] = pd.to_datetime(
-        df["day"].astype(str) + "-" + df["month"] + "-2023",
-        format="%d-%b-%Y",
-        errors="coerce"
-    )
+    for col in ["housing", "loan", "default_flag", "deposit"]:
+        if col in df.columns:
+            df[col] = df[col].replace({"yes": 1, "no": 0})
+        else:
+            df[col] = 0
 
-    df.drop(columns=["day", "month"], inplace=True)
+    if "contact_date" in df.columns:
+        df["contact_date"] = pd.to_datetime(df["contact_date"], errors="coerce")
+    else:
+        df["contact_date"] = pd.Timestamp.today()
 
-    df.fillna(0, inplace=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    print(f"Transformed data saved at: {output_path}")
 
-    PROCESSED_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(PROCESSED_DATA_PATH, index=False)
-
-    print("Data transformation completed successfully.")
+    return df
 
 if __name__ == "__main__":
     transform_data()
