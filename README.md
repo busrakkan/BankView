@@ -1,7 +1,7 @@
 # BankView
 Comprehensive customer and product analytics for business decision support. BankView extracts, cleans, and models banking data to calculate KPIs, visualize trends, and provide actionable insights for retail and SME banking.
 
-## 📊 Dataset
+## Dataset
 
 ### Source
 The dataset used in this project is the **Bank Marketing Dataset**, publicly available on Kaggle.  
