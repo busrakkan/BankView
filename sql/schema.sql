@@ -1,4 +1,3 @@
--- Customers table
 CREATE TABLE IF NOT EXISTS customers (
     customer_id INTEGER PRIMARY KEY AUTOINCREMENT,
     age INTEGER,
@@ -11,7 +10,7 @@ CREATE TABLE IF NOT EXISTS customers (
     loan INTEGER
 );
 
--- Campaigns table
+
 CREATE TABLE IF NOT EXISTS campaigns (
     campaign_id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER,
@@ -25,7 +24,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     FOREIGN KEY(customer_id) REFERENCES customers(customer_id)
 );
 
--- Products table
+
 CREATE TABLE IF NOT EXISTS products (
     product_id INTEGER PRIMARY KEY AUTOINCREMENT,
     customer_id INTEGER,

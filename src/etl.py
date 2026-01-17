@@ -2,23 +2,18 @@ import pandas as pd
 import sqlite3
 from pathlib import Path
 
-# Paths
 SCRIPT_DIR = Path(__file__).parent
 CSV_PATH = SCRIPT_DIR.parent / "data" / "processed" / "bank_cleaned.csv"
 DB_PATH = SCRIPT_DIR.parent / "data" / "bankview.db"
 
 def run_etl():
-    # Load processed CSV
     df = pd.read_csv(CSV_PATH)
 
-    # Rename 'default' column to avoid SQL reserved keyword
     df.rename(columns={"default": "default_flag"}, inplace=True)
 
-    # Connect to SQLite database (creates it if not exists)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    # Create tables
     cursor.executescript("""
     DROP TABLE IF EXISTS products;
     DROP TABLE IF EXISTS campaigns;
@@ -57,9 +52,7 @@ def run_etl():
     );
     """)
 
-    # Insert data
     for idx, row in df.iterrows():
-        # Insert into customers
         cursor.execute("""
             INSERT INTO customers (age, job, marital, education, default_flag, balance, housing, loan)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -68,7 +61,6 @@ def run_etl():
         
         customer_id = cursor.lastrowid
 
-        # Insert into campaigns
         cursor.execute("""
             INSERT INTO campaigns (customer_id, contact_date, contact, duration,
                                    campaign_number, pdays, previous, poutcome)
@@ -76,13 +68,11 @@ def run_etl():
         """, (customer_id, row.contact_date, row.contact, row.duration,
               row.campaign, row.pdays, row.previous, row.poutcome))
 
-        # Insert into products
         cursor.execute("""
             INSERT INTO products (customer_id, deposit)
             VALUES (?, ?)
         """, (customer_id, row.deposit))
 
-    # Commit and close
     conn.commit()
     conn.close()
 
