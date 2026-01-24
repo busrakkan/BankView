@@ -1,118 +1,92 @@
 import sqlite3
 from pathlib import Path
-
+import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import os
 
-
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "bankview.db"
-REPORTS_DIR = BASE_DIR / "reports" / "charts"
-
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-
+REPORTS_DIR = BASE_DIR / "reports"
+REPORTS_DIR.mkdir(exist_ok=True)
 
 def load_kpis():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
     cursor.execute("""
         SELECT
-            COUNT(DISTINCT c.customer_id) AS total_customers,
-            SUM(p.deposit) AS total_deposits,
-            ROUND(AVG(p.deposit) * 100, 2) AS conversion_rate
+            COUNT(*) AS total_customers,
+            SUM(deposit) AS total_deposits,
+            ROUND(SUM(deposit)*100.0/COUNT(*), 2) AS conversion_rate,
+            ROUND(AVG(CASE WHEN deposit=0 THEN balance END), 2) AS avg_balance_no_deposit,
+            ROUND(AVG(CASE WHEN deposit=1 THEN balance END), 2) AS avg_balance_deposit
         FROM customers c
         JOIN products p ON c.customer_id = p.customer_id
     """)
-    total_customers, total_deposits, conversion_rate = cursor.fetchone()
-
-    cursor.execute("""
-        SELECT
-            p.deposit,
-            ROUND(AVG(c.balance), 2)
-        FROM customers c
-        JOIN products p ON c.customer_id = p.customer_id
-        GROUP BY p.deposit
-        ORDER BY p.deposit
-    """)
-    balances = cursor.fetchall()
-
+    row = cursor.fetchone()
     conn.close()
-
-    return {
-        "total_customers": total_customers,
-        "total_deposits": total_deposits,
-        "conversion_rate": conversion_rate,
-        "avg_balance_no_deposit": balances[0][1],
-        "avg_balance_deposit": balances[1][1],
+    kpis = {
+        "total_customers": row[0],
+        "total_deposits": row[1],
+        "conversion_rate": row[2],
+        "avg_balance_no_deposit": row[3],
+        "avg_balance_deposit": row[4]
     }
+    return kpis
 
-
-def create_kpi_dashboard(kpis):
-    fig = make_subplots(
-        rows=2,
-        cols=3,
-        specs=[[{"type": "indicator"}] * 3,
-               [{"type": "indicator"}] * 3],
-        horizontal_spacing=0.08,
-        vertical_spacing=0.25,
-    )
+def create_kpi_figure(kpis):
+    fig = go.Figure()
 
     fig.add_trace(go.Indicator(
         mode="number",
         value=kpis["total_customers"],
         title={"text": "Total Customers"},
-    ), row=1, col=1)
-
+        domain={'row': 0, 'column': 0}
+    ))
     fig.add_trace(go.Indicator(
         mode="number",
         value=kpis["total_deposits"],
         title={"text": "Total Deposits"},
-    ), row=1, col=2)
-
+        domain={'row': 0, 'column': 1}
+    ))
     fig.add_trace(go.Indicator(
         mode="number",
         value=kpis["conversion_rate"],
         number={"suffix": "%"},
         title={"text": "Conversion Rate"},
-    ), row=1, col=3)
-
+        domain={'row': 1, 'column': 0}
+    ))
     fig.add_trace(go.Indicator(
         mode="number",
         value=kpis["avg_balance_no_deposit"],
-        number={"prefix": "€"},
         title={"text": "Avg Balance (No Deposit)"},
-    ), row=2, col=1)
-
+        domain={'row': 1, 'column': 1}
+    ))
     fig.add_trace(go.Indicator(
         mode="number",
         value=kpis["avg_balance_deposit"],
-        number={"prefix": "€"},
         title={"text": "Avg Balance (Deposit)"},
-    ), row=2, col=2)
+        domain={'row': 2, 'column': 0}
+    ))
 
     fig.update_layout(
-        title=" BankView - KPI Summary Dashboard",
+        grid={"rows": 3, "columns": 2, "pattern": "independent"},
         height=600,
-        margin=dict(t=80, l=40, r=40, b=40),
+        title="BANKVIEW KPI SUMMARY"
     )
 
-    html_path = REPORTS_DIR / "kpi_summary.html"
-    png_path = REPORTS_DIR / "kpi_summary.png"
-
-    fig.write_html(html_path)
-    fig.write_image(png_path, scale=2)
-
-    print(f"Dashboard saved to:\n- {html_path}\n- {png_path}")
-
-    fig.show()
-
+    return fig
 
 if __name__ == "__main__":
     kpis = load_kpis()
-
     print("\n BANKVIEW KPI SUMMARY ")
     for k, v in kpis.items():
         print(f"{k}: {v}")
 
-    create_kpi_dashboard(kpis)
+    fig = create_kpi_figure(kpis)
+    png_path = REPORTS_DIR / "kpi_summary.png"
+    try:
+        fig.write_image(png_path, scale=2)
+        print(f"\nKPI chart saved as: {png_path}")
+    except ValueError as e:
+        print("\nCannot save image: ", e)
+        print("Install Kaleido: pip install --upgrade kaleido")
