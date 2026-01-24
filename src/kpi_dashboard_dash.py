@@ -1,150 +1,78 @@
-import sqlite3
-from pathlib import Path
 import pandas as pd
+import sqlite3
 from dash import Dash, dcc, html, Input, Output
-from visualization import deposits_by_job_chart, campaign_effectiveness_chart
+import plotly.express as px
+from visualization import aggregate_trends
 
-BASE_DIR = Path(__file__).parent.parent
-DB_PATH = BASE_DIR / "data" / "bankview.db"
+DB_PATH = "data/bankview.db"
 
-def load_kpis():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT
-            COUNT(*) AS total_customers,
-            SUM(deposit) AS total_deposits,
-            ROUND(SUM(deposit)*100.0/COUNT(*), 2) AS conversion_rate,
-            ROUND(AVG(CASE WHEN deposit=0 THEN balance END), 2) AS avg_balance_no_deposit,
-            ROUND(AVG(CASE WHEN deposit=1 THEN balance END), 2) AS avg_balance_deposit
-        FROM customers c
-        JOIN products p ON c.customer_id = p.customer_id
-    """)
-    row = cursor.fetchone()
-    conn.close()
-    kpis = {
-        "total_customers": row[0],
-        "total_deposits": row[1],
-        "conversion_rate": row[2],
-        "avg_balance_no_deposit": row[3],
-        "avg_balance_deposit": row[4]
-    }
-    return kpis
+conn = sqlite3.connect(DB_PATH)
+customers = pd.read_sql("SELECT * FROM customers", conn)
+campaigns = pd.read_sql("SELECT * FROM campaigns", conn)
+products = pd.read_sql("SELECT * FROM products", conn)
+conn.close()
 
-def load_channel_job_data():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("""
-        SELECT
-            ca.contact AS channel,
-            c.job,
-            p.deposit
-        FROM campaigns ca
-        JOIN customers c ON ca.customer_id = c.customer_id
-        JOIN products p ON c.customer_id = p.customer_id
-    """, conn)
-    conn.close()
-    return df
-
-def load_campaign_data():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("""
-        SELECT
-            ca.contact_date,
-            ca.contact AS channel,
-            p.deposit
-        FROM campaigns ca
-        JOIN products p ON ca.customer_id = p.customer_id
-    """, conn, parse_dates=["contact_date"])
-    conn.close()
-    return df
+campaigns["contact_date"] = pd.to_datetime(campaigns["contact_date"], errors="coerce")
 
 app = Dash(__name__)
-channel_job_df = load_channel_job_data()
-campaign_df = load_campaign_data()
-kpis = load_kpis()
-
-channels = channel_job_df['channel'].unique()
-jobs = channel_job_df['job'].unique()
-min_date, max_date = campaign_df['contact_date'].min(), campaign_df['contact_date'].max()
+app.title = "BankView KPI Dashboard"
 
 app.layout = html.Div([
-    html.H1("BankView Dashboard", style={"textAlign": "center"}),
+    html.H1("BANKVIEW KPI DASHBOARD", style={"textAlign": "center"}),
 
     html.Div([
         html.Div([
-            html.H3("Total Customers"),
-            html.H4(f"{kpis['total_customers']}")
-        ], style={"width": "18%", "display": "inline-block"}),
+            html.Label("Select Date Range:"),
+            dcc.DatePickerRange(
+                id="date-picker",
+                min_date_allowed=campaigns["contact_date"].min(),
+                max_date_allowed=campaigns["contact_date"].max(),
+                start_date=campaigns["contact_date"].min(),
+                end_date=campaigns["contact_date"].max()
+            )
+        ], style={"display": "inline-block", "margin-right": "30px"}),
 
         html.Div([
-            html.H3("Total Deposits"),
-            html.H4(f"{kpis['total_deposits']}")
-        ], style={"width": "18%", "display": "inline-block"}),
+            html.Label("Select Product Type:"),
+            dcc.Dropdown(
+                id="product-dropdown",
+                options=[
+                    {"label": "All", "value": "all"},
+                    {"label": "Deposit", "value": "deposit"},
+                    {"label": "Loan", "value": "loan"}
+                ],
+                value="all"
+            )
+        ], style={"display": "inline-block"})
+    ], style={"margin": "20px"}),
 
-        html.Div([
-            html.H3("Conversion Rate (%)"),
-            html.H4(f"{kpis['conversion_rate']}")
-        ], style={"width": "18%", "display": "inline-block"}),
-
-        html.Div([
-            html.H3("Avg Balance (No Deposit)"),
-            html.H4(f"{kpis['avg_balance_no_deposit']}")
-        ], style={"width": "22%", "display": "inline-block"}),
-
-        html.Div([
-            html.H3("Avg Balance (Deposit)"),
-            html.H4(f"{kpis['avg_balance_deposit']}")
-        ], style={"width": "22%", "display": "inline-block"})
-    ], style={"textAlign": "center"}),
-
-    html.Hr(),
-
-    html.Div([
-        html.H2("Deposits by Job & Channel"),
-        html.Label("Select Channel:"),
-        dcc.Dropdown(
-            id="channel-dropdown",
-            options=[{"label": ch, "value": ch} for ch in channels],
-            value=channels[0]
-        ),
-        dcc.Graph(id="job-bar-chart")
-    ]),
-
-    html.Hr(),
-
-    html.Div([
-        html.H2("Campaign Effectiveness Over Time"),
-        html.Label("Select Channel:"),
-        dcc.Dropdown(
-            id="campaign-channel-dropdown",
-            options=[{"label": ch, "value": ch} for ch in channels],
-            value=channels[0]
-        ),
-        dcc.DatePickerRange(
-            id="date-range-picker",
-            start_date=min_date,
-            end_date=max_date,
-            display_format="YYYY-MM-DD"
-        ),
-        dcc.Graph(id="campaign-line-chart")
+    dcc.Tabs([
+        dcc.Tab(label="Deposits Trend", children=[dcc.Graph(id="deposits-trend")]),
+        dcc.Tab(label="Loans Trend", children=[dcc.Graph(id="loans-trend")]),
+        dcc.Tab(label="Average Balance", children=[dcc.Graph(id="avg-balance")]),
+        dcc.Tab(label="Customer Growth", children=[dcc.Graph(id="customer-growth")])
     ])
 ])
 
 @app.callback(
-    Output("job-bar-chart", "figure"),
-    Input("channel-dropdown", "value")
+    Output("deposits-trend", "figure"),
+    Output("loans-trend", "figure"),
+    Output("avg-balance", "figure"),
+    Output("customer-growth", "figure"),
+    Input("date-picker", "start_date"),
+    Input("date-picker", "end_date"),
+    Input("product-dropdown", "value")
 )
-def update_job_chart(selected_channel):
-    return deposits_by_job_chart(channel_job_df, selected_channel)
+def update_charts(start_date, end_date, product_filter):
+    product_filter_value = product_filter if product_filter != "all" else None
+    trends = aggregate_trends(customers, campaigns, products, start_date, end_date, product_filter_value)
 
-@app.callback(
-    Output("campaign-line-chart", "figure"),
-    [Input("campaign-channel-dropdown", "value"),
-     Input("date-range-picker", "start_date"),
-     Input("date-range-picker", "end_date")]
-)
-def update_campaign_chart(selected_channel, start_date, end_date):
-    return campaign_effectiveness_chart(campaign_df, selected_channel, start_date, end_date)
+    fig_deposits = px.line(trends, x="contact_date", y="total_deposits", title="Total Deposits Over Time")
+    fig_loans = px.line(trends, x="contact_date", y="total_loans", title="Total Loans Over Time")
+    fig_avg_balance = px.line(trends, x="contact_date", y="avg_balance", title="Average Balance Over Time")
+    fig_customers = px.line(trends, x="contact_date", y="total_customers", title="Total Customers Over Time")
+
+    return fig_deposits, fig_loans, fig_avg_balance, fig_customers
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run(debug=True, port=8050)
